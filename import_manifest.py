@@ -11,12 +11,15 @@ import argparse
 import logging
 import re
 from difflib import SequenceMatcher
+import asyncdata
+
 
 from blackduck.HubRestApi import HubInstance
 
 logging.basicConfig(filename='MRB_import_yocto_manifest.log',level=logging.DEBUG)
 
 hub = HubInstance()
+
 
 def get_kb_component(packagename):
     #print("DEBUG: processing package {}".format(packagename))
@@ -32,96 +35,101 @@ def get_kb_component(packagename):
         logging.error("Failed to retrieve KB matches, status code: {}".format(response.status_code))
     return response
 
-def find_ver_from_compver(kburl, version):
+
+def find_ver_from_compver(kburl, version, allcompdata, allverdata):
     matchversion = ""
     
-    component = hub.execute_get(kburl)            
-    if component.status_code != 200:
-        logging.error("Failed to retrieve component, status code: {}".format(component.status_code))
-        return "", "", 0, "", ""
-    bdcomp_sourceurl = component.json().get('url')
-    if bdcomp_sourceurl:
-        bdcomp_sourceurl = bdcomp_sourceurl.replace(';','')
-    #
-    # Request the list of versions for this component
-    compname = component.json().get('name')
-    respitems = component.json().get('_meta')
-    links = respitems['links']
-    vers_url = links[0]['href'] + "?limit=1000"
-    kbversions = hub.execute_get(vers_url)           
-    if kbversions.status_code != 200:
-        logging.error("Failed to retrieve component, status code: {}".format(kbversions.status_code))
-        return "", "", 0, "", ""
+    # component = hub.execute_get(kburl)
+    # if component.status_code != 200:
+    #     logging.error("Failed to retrieve component, status code: {}".format(component.status_code))
+    #     return "", "", 0, "", ""
+    # bdcomp_sourceurl = component.json().get('url')
+    # if bdcomp_sourceurl:
+    #     bdcomp_sourceurl = bdcomp_sourceurl.replace(';','')
+    # #
+    # # Request the list of versions for this component
+    # compname = component.json().get('name')
+    # respitems = component.json().get('_meta')
+    # links = respitems['links']
+    # vers_url = links[0]['href'] + "?limit=1000"
+    # kbversions = hub.execute_get(vers_url)
+    # if kbversions.status_code != 200:
+    #     logging.error("Failed to retrieve component, status code: {}".format(kbversions.status_code))
+    #     return "", "", 0, "", ""
 
-    localversion = version.replace('-','.')
-    for kbversion in kbversions.json().get('items'):
+    if kburl in allverdata.keys():
+        localversion = version.replace('-','.')
+        for kbver in allverdata[kburl].keys():
+            ver_entry = allverdata[kburl][kbver]
+            kbver_url = ver_entry['_meta']['href']
+            # logging.debug("DEBUG: component = {} searchversion = {} kbver = {} kbverurl = {}".format(compname, version, kbversionname, kbver_url))
+            if (kbver == localversion):
+                # exact version string match
+                matchversion = ver_entry['versionName']
+                matchstrength = 3
+                break
+            kbversionname = kbver.replace('-', '.')
 
-        kbversionname = kbversion['versionName'].replace('-', '.')
-        kbver_url = kbversion['_meta']['href']
-        logging.debug("DEBUG: component = {} searchversion = {} kbver = {} kbverurl = {}".format(compname, version, kbversionname, kbver_url))
-        if (kbversionname == localversion):
-            # exact version string match
-            matchversion = kbversion['versionName']
-            matchstrength = 3
-            break                
-
-        # Need to look for partial matches
-        seq = SequenceMatcher(None, kbversionname, localversion)
-        match = seq.find_longest_match(0, len(kbversionname), 0, len(localversion))
-        if (match.a == 0) and (match.b == 0) and (match.size == len(kbversionname)):
-            # Found match of full kbversion at start of search_version
-            if len(kbversionname) > len(matchversion):
-                # Update if the kbversion is longer than the previous match
-                matchversion = kbversion['versionName']
-                matchstrength = 2
-                logging.debug("Found component block 1 - version="+ matchversion)
-
-        elif (match.b == 0) and (match.size == len(localversion)):
-            # Found match of full search_version within kbversion
-            # Need to check if kbversion has digits before the match (would mean a mismatch)
-            mob = re.search('\d', kbversionname[0:match.a])
-            if not mob and (len(kbversionname) > len(matchversion)):
-                # new version string matches kbversion but with characters before and is longer than the previous match
-                matchversion = kbversion['versionName']
-                logging.debug("Found component block 2 - version="+ matchversion)
-                if (match.a == 1) and (kbversionname.lower() == 'v' ):  # Special case of kbversion starting with 'v'
-                    matchstrength = 3
-                else:
+            # Need to look for partial matches
+            seq = SequenceMatcher(None, kbversionname, localversion)
+            match = seq.find_longest_match(0, len(kbversionname), 0, len(localversion))
+            if (match.a == 0) and (match.b == 0) and (match.size == len(kbversionname)):
+                # Found match of full kbversion at start of search_version
+                if len(kbversionname) > len(matchversion):
+                    # Update if the kbversion is longer than the previous match
+                    matchversion = ver_entry['versionName']
                     matchstrength = 2
+                    logging.debug("Found component block 1 - version="+ matchversion)
 
-        elif (match.a == 0) and (match.b == 0) and (match.size > 2):
-            # both strings match at start for more than 2 characters min
-            # Need to try close numeric version match
-            # - Get the final segment of searchversion & kbversion
-            # - Match if 2 versions off?          
-            if 0 <= match.size - localversion.rfind(".") <= 2:
-                # common matched string length is after final .
-                kbfinalsegment = kbversionname.split(".")[-1]
-                localfinalsegment = localversion.split(".")[-1]
-                if (kbfinalsegment.isdigit() and localfinalsegment.isdigit()):
-                    # both final segments are numeric
-                    logging.debug("kbfinalsegment = " + kbfinalsegment + " localfinalsegment = " + localfinalsegment + " matchversion = " + matchversion)
-                    if abs(int(kbfinalsegment) - int(localfinalsegment)) <= 2:
-                        # values of final segments are within 2 of each other
-                        if len(kbversionname) >= len(matchversion):
-                            # kbversion is longer or equal to matched version string 
-                            matchversion = kbversion['versionName']
-                            matchstrength = 1
-                            logging.debug("Found component block 3 - version="+ matchversion)
+            elif (match.b == 0) and (match.size == len(localversion)):
+                # Found match of full search_version within kbversion
+                # Need to check if kbversion has digits before the match (would mean a mismatch)
+                mob = re.search('\d', kbversionname[0:match.a])
+                if not mob and (len(kbversionname) > len(matchversion)):
+                    # new version string matches kbversion but with characters before and is longer than the previous match
+                    matchversion = ver_entry['versionName']
+                    logging.debug("Found component block 2 - version="+ matchversion)
+                    if (match.a == 1) and (kbversionname.lower() == 'v' ):  # Special case of kbversion starting with 'v'
+                        matchstrength = 3
+                    else:
+                        matchstrength = 2
+
+            elif (match.a == 0) and (match.b == 0) and (match.size > 2):
+                # both strings match at start for more than 2 characters min
+                # Need to try close numeric version match
+                # - Get the final segment of searchversion & kbversion
+                # - Match if 2 versions off?
+                if 0 <= match.size - localversion.rfind(".") <= 2:
+                    # common matched string length is after final .
+                    kbfinalsegment = kbversionname.split(".")[-1]
+                    localfinalsegment = localversion.split(".")[-1]
+                    if (kbfinalsegment.isdigit() and localfinalsegment.isdigit()):
+                        # both final segments are numeric
+                        logging.debug("kbfinalsegment = " + kbfinalsegment + " localfinalsegment = " + localfinalsegment + " matchversion = " + matchversion)
+                        if abs(int(kbfinalsegment) - int(localfinalsegment)) <= 2:
+                            # values of final segments are within 2 of each other
+                            if len(kbversionname) >= len(matchversion):
+                                # kbversion is longer or equal to matched version string
+                                matchversion = ver_entry['versionName']
+                                matchstrength = 1
+                                logging.debug("Found component block 3 - version="+ matchversion)
                                   
     if matchversion != "":
-        return compname, matchversion, matchstrength, bdcomp_sourceurl, kbver_url
-    
+        # return compname, matchversion, matchstrength, bdcomp_sourceurl, kbver_url
+        return matchversion, matchstrength, kbver_url
+
     return "", "", 0, "", ""
 
-def find_ver_from_hits(hits, search_version):
+
+def find_ver_from_hits(hits, search_version, allcompdata, allverdata):
     matchversion = ""
     matchstrength=0
     for hit in hits:
         #
         # Get component from URL
         comp_url = hit['component']
-        compname, matchversion, matchstrength, bdcomp_sourceurl, bdcompver_url = find_ver_from_compver(comp_url, search_version)
+        compname, matchversion, matchstrength, bdcomp_sourceurl, bdcompver_url = \
+            find_ver_from_compver(comp_url, search_version, allcompdata, allverdata)
         if matchstrength == 3:
             break
 
@@ -131,20 +139,25 @@ def find_ver_from_hits(hits, search_version):
         return compname, matchversion, matchstrength, bdcomp_sourceurl, comp_url, bdcompver_url
 
 
-def search_kbpackage(package):    
-    response = get_kb_component(package)
-    if response.status_code != 200:
-        print("error")
-        return ""
-    
-    respitems = response.json().get('items', [])
-    logging.debug("{} items returned".format(respitems[0]['searchResultStatistics']['numResultsInThisPage']))
-    if respitems[0]['searchResultStatistics']['numResultsInThisPage'] > 0:
-        return respitems[0]['hits']
+def search_kbpackage(package, allcompdata):
+    # response = get_kb_component(package)
+    # if response.status_code != 200:
+    #     print("error")
+    #     return ""
+    #
+    # respitems = response.json().get('items', [])
+    # logging.debug("{} items returned".format(respitems[0]['searchResultStatistics']['numResultsInThisPage']))
+    # if respitems[0]['searchResultStatistics']['numResultsInThisPage'] > 0:
+    #     return respitems[0]['hits']
+    # else:
+    #     return ""
+    if package in allcompdata.keys():
+        return allcompdata[package]
     else:
-        return ""
+        return ''
 
-def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings):
+
+def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings, allcompdata, allverdata):
     #
     # Try to find component in KB
     #
@@ -166,10 +179,11 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings)
     origcomp = compname
     while end == False:
         logging.debug("find_comp_from_kb(): Searching for '{}'".format(compname))
-        hits = search_kbpackage(compname)
+        hits = search_kbpackage(compname, allcompdata)
         if hits:
             logging.debug("find_comp_from_kb(): Found matches for package {}".format(compname))
-            temp_comp, temp_version, matchstrength, temp_srcurl, temp_compurl, temp_compverurl = find_ver_from_hits(hits, version)
+            temp_comp, temp_version, matchstrength, temp_srcurl, temp_compurl, temp_compverurl = \
+                find_ver_from_hits(hits, version, allcompdata, allverdata)
             if matchstrength == 3:
                 end = True
             if matchstrength > max_matchstrength:
@@ -465,21 +479,22 @@ def read_compfile(compfile):
     return lines
 
 def process_compfile_line(line):
-    version = ""
-    package = ""
-    splitline = line.split("-")
-    for segment in splitline:
-        if segment[0].isdigit():
-            if version != "":
-                version += "."
-            version += segment.strip()
-        else:
-            if package != "":
-                package += "-"
-            package += segment.strip()
-    return(package, version)
-#    splitline = line.split(";") # Alternative import
-#    return(splitline[0], splitline[1]) # Alternative import
+    # version = ""
+    # package = ""
+    # # splitline = line.split("-")
+    # # for segment in splitline:
+    # #     if segment[0].isdigit():
+    # #         if version != "":
+    # #             version += "."
+    # #         version += segment.strip()
+    # #     else:
+    # #         if package != "":
+    # #             package += "-"
+    # #         package += segment.strip()
+    # # return(package, version)
+
+   splitline = line.rstrip().split(";") # Alternative import
+   return(splitline[0], splitline[1]) # Alternative import
 
 #
 # Main Program
@@ -524,7 +539,18 @@ if args.command == 'kblookup':
     #
     # Process components to find matching KB URLs - output to componentlookup.csv
     lines = read_compfile(args.component_file)
-    
+
+    print("")
+    print("Pre-processing component list file {} to get KB entries ...".format(args.component_file))
+    pkgs = {}
+    for line in lines:
+        package, version = process_compfile_line(line)
+
+        if package not in kblookupdict:
+            pkgs[package] = version
+
+    all_compdata, all_verdata = asyncdata.get_data_async(pkgs, hub)
+
     print("")
     print("Will use output kbfile {}".format(args.output))
     print("Processing component list file {} ...".format(args.component_file))
@@ -571,7 +597,8 @@ if args.command == 'kblookup':
                     update_kbfile_entry(args.output, package, version, kblookupdict[package][0], "NO VERSION MATCH")
                     continue # move to next component
         else:
-            newkbline = find_comp_from_kb(package, version, args.output, args.kbfile, args.replace_package_string)
+            newkbline = find_comp_from_kb(package, version, args.output, args.kbfile, args.replace_package_string,
+                                          all_compdata, all_verdata)
             add_kbfile_entry(args.output, newkbline)
             processed_comps += 1
             
