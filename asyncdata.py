@@ -39,8 +39,9 @@ async def async_main(comps, hub):
             if comp in all_compdata.keys():
                 for kbentry in all_compdata[comp]:
 
-                    verdata_task = asyncio.ensure_future(async_get_verdata(kbentry['component'], comps[comp],
-                                                                           session, bdurl, token, trustcert))
+                    verdata_task = asyncio.ensure_future(
+                        async_get_verdata(kbentry['fields']['name'], kbentry['component'], comps[comp],
+                                          session, bdurl, token, trustcert))
                     verdata_tasks.append(verdata_task)
 
         print('Getting component versions from KB ... ')
@@ -68,7 +69,7 @@ async def async_get_compdata(comp, session, baseurl, token, trustcert):
     params = {
         # 'q': [comp['componentIdentifier']],
         'q': comp,
-        'limit': 20
+        'limit': 50
     }
     # search_results = bd.get_items('/api/components', params=params)
     # /api/search/components?q=name:{}&limit={}
@@ -83,14 +84,14 @@ async def async_get_compdata(comp, session, baseurl, token, trustcert):
     # print(found_comps)
     if 'items' in found_comps and len(found_comps['items']) == 1 and 'hits' in found_comps['items'][0]:
         found = found_comps['items'][0]['hits']
-        print(f"Processing {comp} - returned {len(found)}")
+        print(f"Processing component '{comp}' - returned {len(found)} matches from KB")
         return comp, found
 
     return None, None
     # return comp['componentIdentifier'], [found['variant'] + '/upgrade-guidance', found['component'] + '/versions']
 
 
-async def async_get_verdata(compurl, ver, session, baseurl, token, trustcert):
+async def async_get_verdata(compname, compurl, ver, session, baseurl, token, trustcert):
     if trustcert:
         ssl = False
     else:
@@ -109,11 +110,13 @@ async def async_get_verdata(compurl, ver, session, baseurl, token, trustcert):
     async with session.get(compurl + f'/versions?q=versionName:{ver}&limit=10', headers=headers, ssl=ssl) as resp:
             kbcomp = await resp.json()
 
-    print(f"{compurl}: {kbcomp['totalCount']}")
+    # print(f"{compurl}: {kbcomp['totalCount']}")
 
     if kbcomp['totalCount'] > 0:
         vers = {}
         for item in kbcomp['items']:
+            thisver = item
+            thisver['compName'] = compname
             vers[item['versionName']] = item
         return(f"{compurl}", vers)
     return None, None

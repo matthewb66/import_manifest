@@ -1,30 +1,34 @@
 #!/usr/bin/env python
 #
 # This script operates in 2 modes as follows:
-# 1. Mode kblookup: Accept input file, read list of components & versions from the file, producing an output list of BD URLs for KB components which match the component
+# 1. Mode kblookup: Accept input file, read list of components & versions from the file, producing an output list of
+# BD URLs for KB components which match the component
 #    name and version
-# 2. Mode import: Accept input file, seed file, project name and version - Read list of components & version from the input file in addition to a seed file of BD URLs
-#    (produced by mode 1), find matching KB component & version and (if not already in project) add as manual component to specified project & version
+# 2. Mode import: Accept input file, seed file, project name and version - Read list of components & version from
+# the input file in addition to a seed file of BD URLs (produced by mode 1), find matching KB component & version
+# and (if not already in project) add as manual component to specified project & version
 
 import argparse
-#import json
+# import json
 import logging
 import re
 from difflib import SequenceMatcher
 import asyncdata
+import os
+import sys
 
 
 from blackduck.HubRestApi import HubInstance
 
-logging.basicConfig(filename='MRB_import_yocto_manifest.log',level=logging.DEBUG)
+logging.basicConfig(filename='MRB_import_yocto_manifest.log', level=logging.DEBUG)
 
 hub = HubInstance()
 
 
 def get_kb_component(packagename):
-    #print("DEBUG: processing package {}".format(packagename))
+    # print("DEBUG: processing package {}".format(packagename))
     packagename = packagename.replace(" ", "+")
-    #packagename = packagename.replace("-", "+")
+    # packagename = packagename.replace("-", "+")
     req_url = hub.get_urlbase() + "/api/search/components?q=name:{}&limit={}".format(packagename, 20)
     try:
         response = hub.execute_get(req_url)
@@ -36,7 +40,7 @@ def get_kb_component(packagename):
     return response
 
 
-def find_ver_from_compver(kburl, version, allcompdata, allverdata):
+def find_ver_from_compver(kburl, version, compdata, allverdata):
     matchversion = ""
     
     # component = hub.execute_get(kburl)
@@ -57,13 +61,20 @@ def find_ver_from_compver(kburl, version, allcompdata, allverdata):
     #     logging.error("Failed to retrieve component, status code: {}".format(kbversions.status_code))
     #     return "", "", 0, "", ""
 
+    bdcomp_sourceurl = ''
+
     if kburl in allverdata.keys():
-        localversion = version.replace('-','.')
+        localversion = version.replace('-', '.')
         for kbver in allverdata[kburl].keys():
             ver_entry = allverdata[kburl][kbver]
+            compname = ver_entry['compName']
             kbver_url = ver_entry['_meta']['href']
-            # logging.debug("DEBUG: component = {} searchversion = {} kbver = {} kbverurl = {}".format(compname, version, kbversionname, kbver_url))
-            if (kbver == localversion):
+            if 'fields' in compdata and 'url' in compdata['fields']:
+                bdcomp_sourceurl = compdata['fields']['url']
+
+            # logging.debug("DEBUG: component = {} searchversion = {} kbver = {} kbverurl = {}".format(compname,
+            # version, kbversionname, kbver_url))
+            if kbver == localversion:
                 # exact version string match
                 matchversion = ver_entry['versionName']
                 matchstrength = 3
@@ -79,17 +90,18 @@ def find_ver_from_compver(kburl, version, allcompdata, allverdata):
                     # Update if the kbversion is longer than the previous match
                     matchversion = ver_entry['versionName']
                     matchstrength = 2
-                    logging.debug("Found component block 1 - version="+ matchversion)
+                    logging.debug("Found component block 1 - version=" + matchversion)
 
             elif (match.b == 0) and (match.size == len(localversion)):
                 # Found match of full search_version within kbversion
                 # Need to check if kbversion has digits before the match (would mean a mismatch)
-                mob = re.search('\d', kbversionname[0:match.a])
+                mob = re.search("\d", kbversionname[0:match.a])
                 if not mob and (len(kbversionname) > len(matchversion)):
-                    # new version string matches kbversion but with characters before and is longer than the previous match
+                    # new version string matches kbversion but with characters before and is longer than the
+                    # previous match
                     matchversion = ver_entry['versionName']
-                    logging.debug("Found component block 2 - version="+ matchversion)
-                    if (match.a == 1) and (kbversionname.lower() == 'v' ):  # Special case of kbversion starting with 'v'
+                    logging.debug("Found component block 2 - version=" + matchversion)
+                    if (match.a == 1) and (kbversionname.lower() == 'v'):  # Special case of kbversion starting 'v'
                         matchstrength = 3
                     else:
                         matchstrength = 2
@@ -103,33 +115,35 @@ def find_ver_from_compver(kburl, version, allcompdata, allverdata):
                     # common matched string length is after final .
                     kbfinalsegment = kbversionname.split(".")[-1]
                     localfinalsegment = localversion.split(".")[-1]
-                    if (kbfinalsegment.isdigit() and localfinalsegment.isdigit()):
+                    if kbfinalsegment.isdigit() and localfinalsegment.isdigit():
                         # both final segments are numeric
-                        logging.debug("kbfinalsegment = " + kbfinalsegment + " localfinalsegment = " + localfinalsegment + " matchversion = " + matchversion)
+                        logging.debug("kbfinalsegment = " + kbfinalsegment + " localfinalsegment = " +
+                                      localfinalsegment + " matchversion = " + matchversion)
                         if abs(int(kbfinalsegment) - int(localfinalsegment)) <= 2:
                             # values of final segments are within 2 of each other
                             if len(kbversionname) >= len(matchversion):
                                 # kbversion is longer or equal to matched version string
                                 matchversion = ver_entry['versionName']
                                 matchstrength = 1
-                                logging.debug("Found component block 3 - version="+ matchversion)
+                                logging.debug("Found component block 3 - version=" + matchversion)
                                   
     if matchversion != "":
-        # return compname, matchversion, matchstrength, bdcomp_sourceurl, kbver_url
-        return matchversion, matchstrength, kbver_url
+        return compname, matchversion, matchstrength, bdcomp_sourceurl, kbver_url
+        # return matchversion, matchstrength, kbver_url
 
     return "", "", 0, "", ""
 
 
 def find_ver_from_hits(hits, search_version, allcompdata, allverdata):
     matchversion = ""
-    matchstrength=0
+    matchstrength = 0
     for hit in hits:
         #
         # Get component from URL
         comp_url = hit['component']
+        # matchversion, matchstrength, bdcompver_url = \
         compname, matchversion, matchstrength, bdcomp_sourceurl, bdcompver_url = \
-            find_ver_from_compver(comp_url, search_version, allcompdata, allverdata)
+            find_ver_from_compver(comp_url, search_version, hit, allverdata)
         if matchstrength == 3:
             break
 
@@ -169,7 +183,7 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
     source_url = ""
     max_matchstrength = 0
 
-    #packagename = package.lower()
+    # packagename = package.lower()
     if replace_strings:
         for repstr in replace_strings:
             compname = compstring.replace(repstr, '')
@@ -177,7 +191,7 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
         compname = compstring
         
     origcomp = compname
-    while end == False:
+    while not end:
         logging.debug("find_comp_from_kb(): Searching for '{}'".format(compname))
         hits = search_kbpackage(compname, allcompdata)
         if hits:
@@ -194,13 +208,14 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
                 compver_url = temp_compverurl
                 source_url = temp_srcurl             
                 
-        if (end == False) and (len(compname) == len(origcomp)) and (compname.find("-") > -1):
+        if not end and (len(compname) == len(origcomp)) and (compname.find("-") > -1):
             compnamecolons = compname.replace("-", "::")
             compnamecolons = compnamecolons.replace("_", "::")
-            hits = search_kbpackage(compnamecolons)
+            hits = search_kbpackage(compnamecolons, allcompdata)
             if hits:
                 logging.debug("find_comp_from_kb(): Found matches for package {}".format(compnamecolons))
-                temp_comp, temp_version, matchstrength, temp_srcurl, temp_compurl, temp_compverurl = find_ver_from_hits(hits, version)
+                temp_comp, temp_version, matchstrength, temp_srcurl, temp_compurl, temp_compverurl = \
+                    find_ver_from_hits(hits, version, allcompdata, allverdata)
                 if matchstrength == 3:
                     end = True    
                 if matchstrength > max_matchstrength:
@@ -211,15 +226,16 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
                     compver_url = temp_compverurl
                     source_url = temp_srcurl                
 
-        if (end == False) and ((compname.find("-") > -1) or (compname.find("_") > -1)):
+        if not end and ((compname.find("-") > -1) or (compname.find("_") > -1)):
             #
             # Process component replacing - with spaces
             compnamespaces = compname.replace("-", " ")
             compnamespaces = compnamespaces.replace("_", " ")
-            hits = search_kbpackage(compnamespaces)
+            hits = search_kbpackage(compnamespaces, allcompdata)
             if hits:
                 logging.debug("find_comp_from_kb(): Found matches for package {}".format(compnamespaces))
-                temp_comp, temp_version, matchstrength, temp_srcurl, temp_compurl, temp_compverurl = find_ver_from_hits(hits, version)
+                temp_comp, temp_version, matchstrength, temp_srcurl, temp_compurl, temp_compverurl = \
+                    find_ver_from_hits(hits, version, allcompdata, allverdata)
                 if matchstrength == 3:
                     end = True
                 if matchstrength > max_matchstrength:
@@ -230,7 +246,7 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
                     compver_url = temp_compverurl
                     source_url = temp_srcurl             
 
-        if end == False:
+        if not end:
             #
             # Remove trailing -xxx from package name
             newcompname = compname.rsplit("-", 1)[0]
@@ -238,28 +254,30 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
                 #
                 # No - found, try removing trailing .xxxx
                 newcompname = compname.rsplit(".", 1)[0]
-                if (len(newcompname) == len(compname)):
+                if len(newcompname) == len(compname):
                     end = True
             compname = newcompname
 
     if max_matchstrength > 0:
         print(" - MATCHED '{}/{}' (sourceURL={})".format(found_comp, found_version, source_url))
-        return "{};{};{};{};{};{};\n".format(compstring,found_comp,source_url,comp_url,version,compver_url)
+        return "{};{};{};{};{};{};\n".format(compstring, found_comp, source_url, comp_url, version, compver_url)
 
     else:
         print(" - NO MATCH")
         return "{};;;NO MATCH;{};NO VERSION MATCH;\n".format(compstring, version)
 
+
 def add_kbfile_entry(outkbfile, line):
     try:
         ofile = open(outkbfile, "a+")
-    except:
+    except Exception as e:
         logging.error("append_kbfile(): Failed to open file {} for read".format(outkbfile))
         return
 
     ofile.write(line)
     ofile.close()
     
+
 def update_kbfile_entry(outkbfile, package, version, compurl, kbverurl):
     #
     # Append version strings to kbfile entry
@@ -276,7 +294,7 @@ def update_kbfile_entry(outkbfile, package, version, compurl, kbverurl):
     # (Repeated as often as matched)
     try:
         ofile = open(outkbfile, "r")
-    except:
+    except Exception as e:
         logging.error("update_kbfile(): Failed to open file {} for read".format(outkbfile))
         return
 
@@ -285,7 +303,7 @@ def update_kbfile_entry(outkbfile, package, version, compurl, kbverurl):
 
     try:
         ofile = open(outkbfile, "w")
-    except:
+    except Exception as e:
         logging.error("update_kbfile(): Failed to open file {} for write".format(outkbfile))
         return
     
@@ -304,6 +322,7 @@ def update_kbfile_entry(outkbfile, package, version, compurl, kbverurl):
             
     ofile.close()
     return
+
 
 def import_kbfile(kbfile, outfile):
     #
@@ -325,7 +344,7 @@ def import_kbfile(kbfile, outfile):
     output = False
     try:
         kfile = open(kbfile, "r")
-    except:
+    except Exception as e:
         logging.error("import_kbfile(): Failed to open file {} ".format(kbfile))
         return kblookupdict, kbverdict
     
@@ -337,7 +356,7 @@ def import_kbfile(kbfile, outfile):
             print("Will write to KB match list output file {}".format(outfile))
         except:
             logging.error("import_kbfile(): Failed to open file {} ".format(outfile))
-            return "",""
+            return "", ""
     
     lines = kfile.readlines()
     
@@ -346,8 +365,8 @@ def import_kbfile(kbfile, outfile):
         elements = line.split(";")
         compname = elements[0]
         kbcompurl = elements[3]
-        #if kbcompurl != "NO MATCH":
-        #kblookupdict[compname] = kbcompurl
+        # if kbcompurl != "NO MATCH":
+        # kblookupdict[compname] = kbcompurl
         kblookupdict.setdefault(compname, []).append(kbcompurl)
         index = 4
         while index < len(elements) - 1:
@@ -359,35 +378,38 @@ def import_kbfile(kbfile, outfile):
         if output:
             ofile.write(line)
     
-    kfile.close
+    kfile.close()
     if output:
         ofile.close()
         
     print("Processed {} entries from {}".format(count, kbfile))
     return kblookupdict, kbverdict
 
+
 def find_compver_from_compurl(package, kburl, search_version):
-    compname, matchversion, matchstrength, bdcomp_sourceurl, bd_verurl = find_ver_from_compver(kburl, search_version)
+    compname, matchversion, matchstrength, bdcomp_sourceurl, bd_verurl = \
+        find_ver_from_compver(kburl, search_version, all_compdata, all_verdata)
     if matchstrength > 0:
         return bd_verurl, bdcomp_sourceurl
     else:
         return "NO VERSION MATCH", ""
-    
+
+
 def add_comp_to_bom(bdverurl, kbverurl, compfile, compver):
     
     posturl = bdverurl + "/components"
     custom_headers = {
-            'Content-Type':'application/vnd.blackducksoftware.bill-of-materials-6+json'
+            'Content-Type': 'application/vnd.blackducksoftware.bill-of-materials-6+json'
     }
     
-    postdata =  {
-            "component" : kbverurl,
-            "componentPurpose" : "import_manifest: imported from file " + compfile,
-            "componentModified" : False,
-            "componentModification" : "Original component = " + compver
+    postdata = {
+            "component": kbverurl,
+            "componentPurpose": "import_manifest: imported from file " + compfile,
+            "componentModified": False,
+            "componentModification": "Original component = " + compver
     }
     
-    #print("POST command - posturl = {} postdata = {}".format(posturl, postdata, custom_headers))
+    # print("POST command - posturl = {} postdata = {}".format(posturl, postdata, custom_headers))
     response = hub.execute_post(posturl, postdata, custom_headers)
     if response.status_code == 200:
         print(" - Component added")
@@ -396,20 +418,26 @@ def add_comp_to_bom(bdverurl, kbverurl, compfile, compver):
         print(" - Component NOT added")
         logging.error("Component NOT added {}".format(kbverurl))
 
+
 def del_comp_from_bom(projverurl, compurl):
-#CURLURL="${HUBURL}/api/v1/releases/${PROJVERID}/component-bom-entries"
-#[{"entityKey":{"entityId":"76a3c684-639b-4675-ac98-fbec8847539b","entityType":"RL"}}]
-#curl $CURLOPTS -X DELETE -H "Accept: application/json" -H "Content-type: application/json" --header "Authorization: Bearer $TOKEN" "${CURLURL//[\"]}" \
-#-d "[{\"entityKey\":{\"entityId\":\"${KBVERID}\",\"entityType\":\"RL\"}}]"
+    # CURLURL="${HUBURL}/api/v1/releases/${PROJVERID}/component-bom-entries"
+    # [{"entityKey":{"entityId":"76a3c684-639b-4675-ac98-fbec8847539b","entityType":"RL"}}]
+    # curl $CURLOPTS -X DELETE -H "Accept: application/json" -H "Content-type: application/json" --header
+    # "Authorization: Bearer $TOKEN" "${CURLURL//[\"]}" \
+    # -d "[{\"entityKey\":{\"entityId\":\"${KBVERID}\",\"entityType\":\"RL\"}}]"
 
-#https://hubeval39.blackducksoftware.com/api/projects/e5de5955-67c1-4b03-911b-5f87f4a0a367/versions/586a2bc7-a1a3-4c58-993d-4d1ba6fa301b/components/339bcb81-ac9a-43f3-b293-8f20a84b79ed/versions/f2e2358c-3e41-43ba-bb6c-e2089c4424b5
-#https://hubeval39.blackducksoftware.com/api/components/55da34b1-ebc5-4bc3-8440-e38c95bf5145/versions/83e168cb-75c6-481a-80a3-f5aaaf8ea7c0
+    # https://hubeval39.blackducksoftware.com/api/projects/e5de5955-67c1-4b03-911b-5f87f4a0a367/versions/586a2bc7-a1a3-
+    # 4c58-993d-4d1ba6fa301b/components/339bcb81-ac9a-43f3-b293-8f20a84b79ed/versions/f2e2358c-3e41-43ba-bb6c-
+    # e2089c4424b5
+    # https://hubeval39.blackducksoftware.com/api/components/55da34b1-ebc5-4bc3-8440-e38c95bf5145/versions/83e168cb-
+    # 75c6-481a-80a3-f5aaaf8ea7c0
     
-    #response = hub.execute_delete(compurl)
+    # response = hub.execute_delete(compurl)
 
-    #delurl = "/".join(projverurl.split("/")[:2]) + "/api/v1/releases/" + projverurl.split("/")[7] + "/component-bom-entries"
-    #kbverid = compurl.split("/")[7]
-    #postdata =  { "entityKey":{"entityId":kbverid,"entityType":"RL"}}
+    # delurl = "/".join(projverurl.split("/")[:2]) + "/api/v1/releases/" + projverurl.split("/")[7] + "/component-bom-
+    # entries"
+    # kbverid = compurl.split("/")[7]
+    # postdata =  { "entityKey":{"entityId":kbverid,"entityType":"RL"}}
     
     response = hub.execute_delete(compurl)
     if response.status_code == 200:
@@ -418,6 +446,7 @@ def del_comp_from_bom(projverurl, compurl):
     else:
         logging.error("Component NOT deleted {}".format(compurl))
         return False
+
 
 def manage_project_version(proj, ver):
     bdproject = hub.get_project_by_name(proj)
@@ -436,13 +465,14 @@ def manage_project_version(proj, ver):
     if not bdversion:
         resp = hub.create_project_version(bdproject, ver)
         if resp.status_code != 201:
-            logging.debug("Cannot create version {}".format(ver))
+            logging.debug("Cannot create project version {}".format(ver))
             return None, None
         print("Created version '{}'".format(ver))
         bdversion = hub.get_version_by_name(bdproject, ver)
     else:
         print("Opening version '{}'".format(ver))
     return bdproject, bdversion
+
 
 def read_compfile(compfile):
     try:
@@ -478,6 +508,7 @@ def read_compfile(compfile):
                 
     return lines
 
+
 def process_compfile_line(line):
     # version = ""
     # package = ""
@@ -493,43 +524,55 @@ def process_compfile_line(line):
     # #         package += segment.strip()
     # # return(package, version)
 
-   splitline = line.rstrip().split(";") # Alternative import
-   return(splitline[0], splitline[1]) # Alternative import
+    splitline = line.rstrip().split(";")  # Alternative import
+    return splitline[0], splitline[1]  # Alternative import
 
 #
 # Main Program
             
-parser = argparse.ArgumentParser(description='Process or import component list into project/version', prog='import_manifest')
+
+parser = argparse.ArgumentParser(description='Process or import component list into project/version',
+                                 prog='import_manifest')
 
 subparsers = parser.add_subparsers(help='Choose operation mode', dest='command')
 # create the parser for the "kblookup" command
 parser_g = subparsers.add_parser('kblookup', help='Process component list to find matching KB URLs & export to file')
 parser_g.add_argument('-c', '--component_file', help='Input component list file', required=True)
 parser_g.add_argument('-k', '--kbfile', help='Input file of KB component IDs matching manifest components')
-parser_g.add_argument('-o', '--output', help='Output file of KB component IDs matching manifest components (default "kblookup.out")', default='kblookup.out')
-parser_g.add_argument('-r', '--replace_package_string', help='Replace (remove) string in input package name', action='append')
-parser_g.add_argument('-a', '--append', help='Append new KB URLs to the KB Lookup file specified in -k', action='store_true')
+parser_g.add_argument('-o', '--output', help='Output file of KB component IDs matching manifest components '
+                                             '(default "kblookup.out")', default='kblookup.out')
+parser_g.add_argument('-r', '--replace_package_string', help='Replace (remove) string in input package name',
+                      action='append')
+parser_g.add_argument('-a', '--append', help='Append new KB URLs to the KB Lookup file specified in -k',
+                      action='store_true')
 
 # create the parser for the "import" command
-parser_i = subparsers.add_parser('import', help='Import component list into specified Black Duck project/version using KB URLs from supplied file')
+parser_i = subparsers.add_parser('import', help='Import component list into specified Black Duck project/version using '
+                                                'KB URLs from supplied file')
 parser_i.add_argument('-c', '--component_file', help='Input component list file', required=True)
-parser_i.add_argument('-k', '--kbfile', help='Input file of KB component IDs and URLs matching manifest components', required=True)
-parser_i.add_argument('-p', '--project', help='Black Duck project name',required=True)
-parser_i.add_argument('-v', '--version', help='Black Duck version name',required=True)
-parser_i.add_argument('-d', '--delete', help='Delete existing manual components from the project - if not specified then components will be added to the existing list', action='store_true')
+parser_i.add_argument('-k', '--kbfile', help='Input file of KB component IDs and URLs matching manifest components',
+                      required=True)
+parser_i.add_argument('-p', '--project', help='Black Duck project name', required=True)
+parser_i.add_argument('-v', '--version', help='Black Duck version name', required=True)
+parser_i.add_argument('-d', '--delete', help='Delete existing manual components from the project - if not specified '
+                                             'then components will be added to the existing list', action='store_true')
 
 
-#parser.add_argument("version")
+# parser.add_argument("version")
 args = parser.parse_args()
 
 kblookupdict = {}   # Dict of package names from kbfile with matching array of component URLs for each
 kbverdict = {}      # Dict of package/version strings with single component version URL for each
-manualcomplist = [] # List of manually added components for optional deletion is -d specified
+manualcomplist = []  # List of manually added components for optional deletion is -d specified
 
 if not args.command:
     parser.print_help()
-    exit
-    
+    sys.exit(1)
+
+if not os.path.exists(args.component_file):
+    print(f"Component file {args.component_file} does not exist - exiting")
+    sys.exit(1)
+
 if args.command == 'kblookup':
     if args.kbfile:
         if args.append:
@@ -547,6 +590,10 @@ if args.command == 'kblookup':
         package, version = process_compfile_line(line)
 
         if package not in kblookupdict:
+            packverstr = package + "/" + version
+            if packverstr not in kbverdict:
+                pkgs[package] = version
+        elif kblookupdict[package][0] == "NO MATCH":
             pkgs[package] = version
 
     all_compdata, all_verdata = asyncdata.get_data_async(pkgs, hub)
@@ -558,7 +605,7 @@ if args.command == 'kblookup':
     for line in lines:
         package, version = process_compfile_line(line)
         
-        print("Manifest Component = '{}/{}'".format(package, version), end = "")
+        print("Manifest Component = '{}/{}'".format(package, version), end="")
         if package in kblookupdict:
             #
             # Found primary package name in kbfile
@@ -571,7 +618,8 @@ if args.command == 'kblookup':
             packverstr = package + "/" + version
             if packverstr in kbverdict:
                 # Found in KB ver URL list - Nothing to do
-                logging.debug("Found component {} version {} in kbverdict - URL {}".format(package, version, kbverdict[packverstr]))
+                logging.debug("Found component {} version {} in kbverdict - URL {}".format(package, version,
+                                                                                           kbverdict[packverstr]))
                 kbverurl = kbverdict[packverstr]
                 print(" - already MATCHED in input KB file")
             else:
@@ -591,20 +639,20 @@ if args.command == 'kblookup':
 
                         foundkbversion = True
                         break
-                if foundkbversion == False:
+                if not foundkbversion:
                     #
                     # No version match - need to add NO VERSION MATCH string to kbfile
                     update_kbfile_entry(args.output, package, version, kblookupdict[package][0], "NO VERSION MATCH")
-                    continue # move to next component
+                    continue  # move to next component
         else:
             newkbline = find_comp_from_kb(package, version, args.output, args.kbfile, args.replace_package_string,
                                           all_compdata, all_verdata)
             add_kbfile_entry(args.output, newkbline)
             processed_comps += 1
             
-        if processed_comps > 500:
-            print("500 components processed - terminating. Please rerun with -k option to append to kbfile")
-            exit()
+        # if processed_comps > 500:
+        #     print("500 components processed - terminating. Please rerun with -k option to append to kbfile")
+        #     exit()
     exit()
 
 if args.command == 'import':
@@ -637,7 +685,7 @@ if args.command == 'import':
         package, version = process_compfile_line(line)
         print("Manifest component to add = '{}/{}'".format(package, version), end="")
         logging.debug("Manifest component to add = '{}/{}'".format(package, version))
-        kbverlurl = ""
+        kbverurl = ""
         if package in kblookupdict:
             #
             # Check if package/version is in kbverdict 
@@ -645,8 +693,9 @@ if args.command == 'import':
             if packstr in kbverdict:
                 #
                 # Component version URL found in kbfile 
-               logging.debug("Compver found in kbverdict packstr = {}, kbverdict[packstr] = {}".format(packstr, kbverdict[packstr]))
-               kbverurl = kbverdict[packstr]
+                logging.debug(f"Compver found in kbverdict packstr = {packstr}, "
+                              f"kbverdict[packstr] = {kbverdict[packstr]}")
+                kbverurl = kbverdict[packstr]
             else:
                 #
                 # No match of component version in kbfile version URLs
@@ -662,12 +711,12 @@ if args.command == 'import':
                 logging.debug("Component found in project - packstr = {}".format(packstr))
                 add_comp_to_bom(bdversion_url, kbverurl, args.component_file, package + "/" + version)
                 if kbverurl in manualcomplist:
-                    manualcomplist.delete(kbverurl)
+                    manualcomplist.remove(kbverurl)
             else:
                 print(" - No component match from KB")
 
         else:
-            print (" - No component match in KB list file")
+            print(" - No component match in KB list file")
     
     if args.delete:
         print("Unused components not deleted - not available until version 2019.08 which supports the required API")
