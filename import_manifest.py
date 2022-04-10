@@ -20,9 +20,12 @@ import sys
 
 from blackduck.HubRestApi import HubInstance
 
+import_manifest_version = '1.1'
+
 logging.basicConfig(filename='MRB_import_yocto_manifest.log', level=logging.DEBUG)
 
 hub = HubInstance()
+global comps_postlist
 
 
 def get_kb_component(packagename):
@@ -32,12 +35,12 @@ def get_kb_component(packagename):
     req_url = hub.get_urlbase() + "/api/search/components?q=name:{}&limit={}".format(packagename, 20)
     try:
         response = hub.execute_get(req_url)
+        if response.status_code != 200:
+            logging.error("Failed to retrieve KB matches, status code: {response.status_code}")
+        return response
     except:
         logging.error("get_kb_component(): Exception trying to find KB matches")
-        
-    if response.status_code != 200:
-        logging.error("Failed to retrieve KB matches, status code: {}".format(response.status_code))
-    return response
+    return None
 
 
 def find_ver_from_compver(kburl, version, compdata, allverdata):
@@ -63,6 +66,10 @@ def find_ver_from_compver(kburl, version, compdata, allverdata):
 
     bdcomp_sourceurl = ''
 
+    compname = ''
+    matchstrength = 0
+    kbver_url = ''
+
     if kburl in allverdata.keys():
         localversion = version.replace('-', '.')
         for kbver in allverdata[kburl].keys():
@@ -70,7 +77,7 @@ def find_ver_from_compver(kburl, version, compdata, allverdata):
             compname = ver_entry['compName']
             kbver_url = ver_entry['_meta']['href']
             if 'fields' in compdata and 'url' in compdata['fields']:
-                bdcomp_sourceurl = compdata['fields']['url']
+                bdcomp_sourceurl = compdata['fields']['url'][0]
 
             # logging.debug("DEBUG: component = {} searchversion = {} kbver = {} kbverurl = {}".format(compname,
             # version, kbversionname, kbver_url))
@@ -125,11 +132,11 @@ def find_ver_from_compver(kburl, version, compdata, allverdata):
                                 # kbversion is longer or equal to matched version string
                                 matchversion = ver_entry['versionName']
                                 matchstrength = 1
-                                logging.debug("Found component block 3 - version=" + matchversion)
+                                logging.debug(f"Found component block 3 - version={matchversion}")
                                   
-    if matchversion != "":
-        return compname, matchversion, matchstrength, bdcomp_sourceurl, kbver_url
-        # return matchversion, matchstrength, kbver_url
+        if matchversion != "":
+            return compname, matchversion, matchstrength, bdcomp_sourceurl, kbver_url
+            # return matchversion, matchstrength, kbver_url
 
     return "", "", 0, "", ""
 
@@ -259,12 +266,12 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
             compname = newcompname
 
     if max_matchstrength > 0:
-        print(" - MATCHED '{}/{}' (sourceURL={})".format(found_comp, found_version, source_url))
-        return "{};{};{};{};{};{};\n".format(compstring, found_comp, source_url, comp_url, version, compver_url)
+        print(f" - MATCHED '{found_comp}/{found_version}' (sourceURL={source_url})")
+        return f"{compstring};{found_comp};{source_url};{comp_url};{version};{compver_url};\n"
 
     else:
         print(" - NO MATCH")
-        return "{};;;NO MATCH;{};NO VERSION MATCH;\n".format(compstring, version)
+        return f"{compstring};;;NO MATCH;{version};NO VERSION MATCH;\n"
 
 
 def add_kbfile_entry(outkbfile, line):
@@ -345,17 +352,17 @@ def import_kbfile(kbfile, outfile):
     try:
         kfile = open(kbfile, "r")
     except Exception as e:
-        logging.error("import_kbfile(): Failed to open file {} ".format(kbfile))
+        logging.error(f"import_kbfile(): Failed to open file '{kbfile}'")
         return kblookupdict, kbverdict
     
-    print("Using KB match list input file {}".format(kbfile))
+    print(f"Using KB match list input file '{kbfile}'")
     if outfile != "" and outfile != kbfile:
         output = True
         try:
             ofile = open(outfile, "a+")
-            print("Will write to KB match list output file {}".format(outfile))
+            print(f"Will write to KB match list output file '{outfile}'")
         except:
-            logging.error("import_kbfile(): Failed to open file {} ".format(outfile))
+            logging.error(f"import_kbfile(): Failed to open file '{outfile}' ")
             return "", ""
     
     lines = kfile.readlines()
@@ -382,7 +389,7 @@ def import_kbfile(kbfile, outfile):
     if output:
         ofile.close()
         
-    print("Processed {} entries from {}".format(count, kbfile))
+    print(f"Processed {count} entries from '{kbfile}'")
     return kblookupdict, kbverdict
 
 
@@ -395,12 +402,13 @@ def find_compver_from_compurl(package, kburl, search_version):
         return "NO VERSION MATCH", ""
 
 
-def add_comp_to_bom(bdverurl, kbverurl, compfile, compver):
+def add_comp_to_list(kbverurl, compfile, compver):
+    global comps_postlist
     
-    posturl = bdverurl + "/components"
-    custom_headers = {
-            'Content-Type': 'application/vnd.blackducksoftware.bill-of-materials-6+json'
-    }
+    # posturl = bdverurl + "/components"
+    # custom_headers = {
+    #         'Content-Type': 'application/vnd.blackducksoftware.bill-of-materials-6+json'
+    # }
     
     postdata = {
             "component": kbverurl,
@@ -409,14 +417,16 @@ def add_comp_to_bom(bdverurl, kbverurl, compfile, compver):
             "componentModification": "Original component = " + compver
     }
     
+    comps_postlist.append(postdata)
+    
     # print("POST command - posturl = {} postdata = {}".format(posturl, postdata, custom_headers))
-    response = hub.execute_post(posturl, postdata, custom_headers)
-    if response.status_code == 200:
-        print(" - Component added")
-        logging.debug("Component added {}".format(kbverurl))
-    else:
-        print(" - Component NOT added")
-        logging.error("Component NOT added {}".format(kbverurl))
+    # response = hub.execute_post(posturl, postdata, custom_headers)
+    # if response.status_code == 200:
+    #     print(" - Component added")
+    #     logging.debug("Component added {}".format(kbverurl))
+    # else:
+    #     print(" - Component NOT added")
+    #     logging.error("Component NOT added {}".format(kbverurl))
 
 
 def del_comp_from_bom(projverurl, compurl):
@@ -453,24 +463,24 @@ def manage_project_version(proj, ver):
     if not bdproject:
         resp = hub.create_project(proj, ver)
         if resp.status_code != 200:
-            logging.debug("Cannot create project {}".format(proj))
+            logging.debug(f"Cannot create project '{proj}'")
             return None, None
         
-        print("Created project '{}'".format(proj))
+        print(f"Created project '{proj}'")
         bdproject = hub.get_project_by_name(proj)
     else:
-        print("Opening project '{}'".format(proj))        
+        print(f"Opening project '{proj}'")
         
     bdversion = hub.get_version_by_name(bdproject, ver)
     if not bdversion:
         resp = hub.create_project_version(bdproject, ver)
         if resp.status_code != 201:
-            logging.debug("Cannot create project version {}".format(ver))
+            logging.debug(f"Cannot create project version {ver}")
             return None, None
-        print("Created version '{}'".format(ver))
+        print(f"Created version '{ver}'")
         bdversion = hub.get_version_by_name(bdproject, ver)
     else:
-        print("Opening version '{}'".format(ver))
+        print(f"Opening version '{ver}'")
     return bdproject, bdversion
 
 
@@ -525,11 +535,17 @@ def process_compfile_line(line):
     # # return(package, version)
 
     splitline = line.rstrip().split(";")  # Alternative import
-    return splitline[0], splitline[1]  # Alternative import
+    if len(splitline) > 1:
+        return splitline[0], splitline[1]  # Alternative import
+    else:
+        print('WARN: Invalid line in compfile')
+        return '', ''
 
 #
 # Main Program
             
+
+print(f"Import_manifest version {import_manifest_version}")
 
 parser = argparse.ArgumentParser(description='Process or import component list into project/version',
                                  prog='import_manifest')
@@ -545,6 +561,7 @@ parser_g.add_argument('-r', '--replace_package_string', help='Replace (remove) s
                       action='append')
 parser_g.add_argument('-a', '--append', help='Append new KB URLs to the KB Lookup file specified in -k',
                       action='store_true')
+parser_g.add_argument('-s', '--strict', help='Only match components with exact name', action='store_true')
 
 # create the parser for the "import" command
 parser_i = subparsers.add_parser('import', help='Import component list into specified Black Duck project/version using '
@@ -557,16 +574,19 @@ parser_i.add_argument('-v', '--version', help='Black Duck version name', require
 parser_i.add_argument('-d', '--delete', help='Delete existing manual components from the project - if not specified '
                                              'then components will be added to the existing list', action='store_true')
 
-
 # parser.add_argument("version")
 args = parser.parse_args()
 
 kblookupdict = {}   # Dict of package names from kbfile with matching array of component URLs for each
 kbverdict = {}      # Dict of package/version strings with single component version URL for each
-manualcomplist = []  # List of manually added components for optional deletion is -d specified
+existing_compdict = {}  # Dict of manually added components for optional deletion is -d specified
 
 if not args.command:
     parser.print_help()
+    sys.exit(1)
+
+if args.kbfile and not os.path.exists(args.kbfile):
+    print(f"Input KB Lookup file '{args.kbfile}' does not exist - exiting")
     sys.exit(1)
 
 if not os.path.exists(args.component_file):
@@ -574,17 +594,22 @@ if not os.path.exists(args.component_file):
     sys.exit(1)
 
 if args.command == 'kblookup':
+    if os.path.exists(args.output) and not args.append:
+        print(f'KB Lookup output file {args.output} already exists - please use -a option if you wish to append')
+        sys.exit(1)
+
     if args.kbfile:
-        if args.append:
+        if args.output:
             kblookupdict, kbverdict = import_kbfile(args.kbfile, args.output)
         else:
             kblookupdict, kbverdict = import_kbfile(args.kbfile, "")
+
     #
     # Process components to find matching KB URLs - output to componentlookup.csv
     lines = read_compfile(args.component_file)
 
     print("")
-    print("Pre-processing component list file {} to get KB entries ...".format(args.component_file))
+    print(f"Pre-processing component list file '{args.component_file}' to find matching KB entries ...")
     pkgs = {}
     for line in lines:
         package, version = process_compfile_line(line)
@@ -592,34 +617,38 @@ if args.command == 'kblookup':
         if package not in kblookupdict:
             packverstr = package + "/" + version
             if packverstr not in kbverdict:
+                if args.replace_package_string:
+                    for repstr in args.replace_package_string:
+                        package = package.replace(repstr, '')
+
                 pkgs[package] = version
         elif kblookupdict[package][0] == "NO MATCH":
             pkgs[package] = version
 
-    all_compdata, all_verdata = asyncdata.get_data_async(pkgs, hub)
+    all_compdata, all_verdata = asyncdata.get_data_async(pkgs, hub, args.strict)
 
     print("")
-    print("Will use output kbfile {}".format(args.output))
-    print("Processing component list file {} ...".format(args.component_file))
+    print(f"Will use output kbfile '{args.output}'")
+    print(f"Processing component list file '{args.component_file}' ...")
     processed_comps = 0
     for line in lines:
         package, version = process_compfile_line(line)
         
-        print("Manifest Component = '{}/{}'".format(package, version), end="")
+        print(f"Manifest Component = '{package}/{version}'", end="")
         if package in kblookupdict:
             #
             # Found primary package name in kbfile
             if kblookupdict[package][0] == "NO MATCH":
                 print("- NO MATCH in input KB File")
                 continue
-            logging.debug("Found package {} in kblookupdict".format(package))
+            logging.debug(f"Found package '{package}' in kblookupdict")
             #
             # Check if package/version is defined in KB Lookup file 
             packverstr = package + "/" + version
             if packverstr in kbverdict:
                 # Found in KB ver URL list - Nothing to do
-                logging.debug("Found component {} version {} in kbverdict - URL {}".format(package, version,
-                                                                                           kbverdict[packverstr]))
+                logging.debug(f"Found component '{package}' version '{version}' in kbverdict - "
+                              f"URL {kbverdict[packverstr]}")
                 kbverurl = kbverdict[packverstr]
                 print(" - already MATCHED in input KB file")
             else:
@@ -630,7 +659,7 @@ if args.command == 'kblookup':
                     kbverurl, srcurl = find_compver_from_compurl(package, kburl, version)
                     processed_comps += 1
                     if kbverurl != "NO VERSION MATCH":
-                        print(" - MATCHED '{}/{}' (sourceURL={})".format(package, version, srcurl))
+                        print(f" - MATCHED '{package}/{version}' (sourceURL={srcurl})")
                         #
                         # KB version URL found
                         kbverdict[package + "/" + version] = kbverurl
@@ -653,38 +682,41 @@ if args.command == 'kblookup':
         # if processed_comps > 500:
         #     print("500 components processed - terminating. Please rerun with -k option to append to kbfile")
         #     exit()
-    exit()
+    if processed_comps > 0:
+        sys.exit(0)
+    sys.exit(1)
 
 if args.command == 'import':
+    comps_postlist = []
+
+    print(f"Using component list file '{args.component_file}'")
+    lines = read_compfile(args.component_file)
+
     if args.kbfile:
         kblookupdict, kbverdict = import_kbfile(args.kbfile, "")
-    
-    bdproject, bdversion = manage_project_version(args.project, args.version) 
+
+    bdproject, bdversion = manage_project_version(args.project, args.version)
     if not bdversion:
-        print("Cannot create version {}".format(args.version))
+        print(f"Cannot create version '{args.version}'")
         exit()
     bdversion_url = bdversion['_meta']['href']
-         
-    print("Using component list file '{}'".format(args.component_file))
-    lines = read_compfile(args.component_file)
-    
     components = hub.get_version_components(bdversion)
-    print("Found {} existing components in project".format(components['totalCount']))
+    print(f"Found {components['totalCount']} existing components in project")
     if args.delete:
         count = 0
-        logging.debug("Looking through the components for project {}, version {}.".format(args.project, args.version))
+        logging.debug(f"Looking through the components for project {args.project}, version {args.version}.")
         for component in components['items']:
             if component['matchTypes'][0] == 'MANUAL_BOM_COMPONENT':
-                manualcomplist.append(component['componentVersion'])
+                existing_compdict[component['componentVersion']] = component['_meta']['href']
                 count += 1
-        print("Found {} manual components".format(count))
+        print(f"Found {count} manual components")
       
     print("")
     print("Processing component list ...")  
     for line in lines:
         package, version = process_compfile_line(line)
-        print("Manifest component to add = '{}/{}'".format(package, version), end="")
-        logging.debug("Manifest component to add = '{}/{}'".format(package, version))
+        print(f"Checking component '{package}/{version}'", end="")
+        logging.debug(f"Manifest component from compfile = '{package}/{version}'")
         kbverurl = ""
         if package in kblookupdict:
             #
@@ -696,32 +728,38 @@ if args.command == 'import':
                 logging.debug(f"Compver found in kbverdict packstr = {packstr}, "
                               f"kbverdict[packstr] = {kbverdict[packstr]}")
                 kbverurl = kbverdict[packstr]
-            else:
-                #
-                # No match of component version in kbfile version URLs
-                for kburl in kblookupdict[package]:
-                    #
-                    # Loop through component URLs from kbfile
-                    kbverurl, srcurl = find_compver_from_compurl(package, kburl, version)
-                    if kbverurl != "NO VERSION MATCH":
-                        break
+            # else:
+            #     #
+            #     # No match of component version in kbfile version URLs
+            #     for kburl in kblookupdict[package]:
+            #         #
+            #         # Loop through component URLs from kbfile
+            #         kbverurl, srcurl = find_compver_from_compurl(package, kburl, version)
+            #         if kbverurl != "NO VERSION MATCH":
+            #             break
             if kbverurl != "NO VERSION MATCH":
                 #
                 # Component does not exist in project
                 logging.debug("Component found in project - packstr = {}".format(packstr))
-                add_comp_to_bom(bdversion_url, kbverurl, args.component_file, package + "/" + version)
-                if kbverurl in manualcomplist:
-                    manualcomplist.remove(kbverurl)
+                print(f" - Found in KB Lookup file - will add to project")
+                add_comp_to_list(kbverurl, args.component_file, package + "/" + version)
+                if kbverurl in existing_compdict.keys():
+                    existing_compdict.pop(kbverurl)
             else:
-                print(" - No component match from KB")
+                print(" - No component match from KB Lookup file")
 
         else:
-            print(" - No component match in KB list file")
-    
+            print(" - No component match from KB Lookup file")
+
+    num_comps_added = asyncdata.post_data_async(comps_postlist, hub, bdversion_url)
+    print(f'{num_comps_added} Components added to project {args.project} version {args.version}')
+
     if args.delete:
-        print("Unused components not deleted - not available until version 2019.08 which supports the required API")
-    #    count = 0
-    #    for compver in manualcomplist:
-    #        del_comp_from_bom(bdversion_url, compver)
-    #        count += 1
-    #    print("Deleted {} existing manual components".format(count))
+        # print("Unused components not deleted - not available until version 2019.08 which supports the required API")
+        count = 0
+        for compver in existing_compdict.keys():
+           del_comp_from_bom(bdversion_url, existing_compdict[compver])
+           count += 1
+        print(f"Deleted {count} existing manual components")
+
+    sys.exit(0)
