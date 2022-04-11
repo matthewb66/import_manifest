@@ -1,7 +1,5 @@
 import aiohttp
 import asyncio
-# from bdscan import globals
-# from bdscan import utils
 
 
 def get_data_async(comps, hub, strict):
@@ -84,7 +82,7 @@ async def async_get_compdata(comp, strict, session, baseurl, token, trustcert):
     # print(found_comps)
     if 'items' in found_comps and len(found_comps['items']) == 1 and 'hits' in found_comps['items'][0]:
         foundlist = found_comps['items'][0]['hits']
-        print(f"Processing component '{comp}' ({len(foundlist)} matches)")
+        print(f"- Component '{comp}': {len(foundlist)} matches")
         if strict:
             newfoundlist = []
             for item in foundlist:
@@ -181,6 +179,7 @@ async def async_post_compdata(comp, session, bdverurl, token, trustcert):
         async with session.post(bdverurl + '/components', json=comp, headers=headers, ssl=ssl) as resp:
             found_comps = await resp.json()
     except Exception as e:
+        print(f"Error creating component - {e}")
         return '', 1
 
     return comp['componentModification'], 0
