@@ -39,7 +39,11 @@ Or
     
     pip install blackduck
     
-Extract this GIT repo into a folder (`git clone https://github.com/matthewb66/import_manifest`).
+Then extract this GIT repo into a folder (`git clone https://github.com/matthewb66/import_manifest`).
+
+Add the required async package:
+
+    pip install aiohttp
 
 Configure the hub connection in the `.restconfig.json` file within the `import_manifest` folder - example contents:
 
@@ -54,7 +58,7 @@ Configure the hub connection in the `.restconfig.json` file within the `import_m
 
 The `import_manifest.py` script must be invoked with one of the 2 modes kblookup or import as shown in the usage text below:
 
-    usage: import_manifest [-h] {kblookup,import} ...
+    usage: python import_manifest [-h] {kblookup,import} ...
 	
     Process or import component list into project/version
 
@@ -126,22 +130,20 @@ Further explanation of options for import mode:
                         REQUIRED Black Duck version name; if version does not exist then new version will be created.
 
     -d, --delete
-                        OPTIONAL Delete existing manual components from the project; if not specified then components will be added to the existing list (no deletions will be made).
+                        OPTIONAL Delete existing manual components from the project; if not specified then components will be added to the existing list (no deletions will be made). CAUTION will delete all components not matching the input component list.
 
 # COMPONENT LIST FILE
 
-This is a (required) input file which contains a list of component names and versions to be imported (one per line) separated by ‘-‘ (hyphen).
+This is a (required) input file which contains a list of component names and versions to be imported (one per line) separated by ‘;‘ (semicolon).
 
 Example file contents:
 
-    ImageMagick-6.9.10-36
-    OpenEXR-tools-2.2.1
-    TclCurl-7.19.6
-    Tktable-2.10
-    Xaw3d-1.6.3
-    a2ps-4.14
-
-Note that both component names and version strings can also contain the ‘-‘ symbol; the script will separate component name from version strings by looking for numeric fields.
+    ImageMagick;6.9.10-36
+    OpenEXR-tools;2.2.1
+    TclCurl;7.19.6
+    Tktable;2.10
+    Xaw3d;1.6.3
+    a2ps;4.14
 
 The component list file is required in both modes of operation and is specified using the `-c` (or `--component_file`) option (e.g. `-c compfile`).
 
@@ -158,14 +160,16 @@ The KB Lookup file is intended to be manually modified after being output from t
 Records are entered 1 per line with fields separated by ‘;’ (semi-colon) and terminated by ‘;’.
 
 Fields on each line are described below:
-    REQUIRED:
-    Field 1 = Local component name;
-    Field 2 = KB component name; (information only)
-    Field 3 = KB component source URL; (information only)
-    Field 4 = KB component URL;
-    OPTIONAL:
-    Field 5 = Local component version string;
-    Field 6 = KB Component version URL;
+
+        REQUIRED:
+        Field 1 = Local component name;
+        Field 2 = KB component name; (information only)
+        Field 3 = KB component source URL; (information only)
+        Field 4 = KB component URL;
+        OPTIONAL:
+        Field 5 = Local component version string;
+        Field 6 = KB Component version URL;
+
 (Fields 5 & 6 can be repeated in pairs)
 
 Fields 2 and 3 are provided for information only to assist with manual assessment of the automatic KB matches found by `kblookup` mode and are not used in the matching process in `import` mode.
@@ -213,17 +217,17 @@ Note that it is possible to enter multiple entries for the same component name w
 
 Explanation of how duplicate entries in the KB lookup file operate in practice:
 
--	Consider the component/version xaw3d-0.6.2 is in the input component list
+-	Consider the component/version `xaw3d;0.6.2` which is in the input component list
 -	The version string ‘0.6.2’ will be searched in the first KB component found in the KB lookup file.
     o	if found, the line will be modified to add a version match for this version:
-    Xaw3d;;;https://hub.blackducksoftware.com/api/components/64b691ee-345f-4345-b2c7-ebb838c853b6;0.6.2;https://hub.blackducksoftware.com/api/components/64b691ee-345f-4345-b2c7-ebb838c853b6/version/14498227-3e8d-471b-ab84-e4c8a5259e78;
+    `Xaw3d;;;https://hub.blackducksoftware.com/api/components/64b691ee-345f-4345-b2c7-ebb838c853b6;0.6.2;https://hub.blackducksoftware.com/api/components/64b691ee-345f-4345-b2c7-ebb838c853b6/version/14498227-3e8d-471b-ab84-e4c8a5259e78;`
 
 -	If version ‘0.6.2’ is not found in the first component, then the second KB component will be searched
     o	If found in the second KB component, then the associated component version will be added to the second line in the KB Match file.
 
 If the required version string does not exist within the KB component, it is also possible to specify the version string and a specific version URL. For example:
 
-1. The string `peterscomponent-1.0.6` is listed in the component list file
+1. The string `peterscomponent;1.0.6` is listed in the component list file
 2. The component `peterscomponent` exists in the KB (URL = https://hub.blackducksoftware.com/api/components/b2168761-819b-40b7-83d4-ebabfbc7f110), but there is no version `1.0.6` available. However, version `1.0.3` is listed in the KB which is sufficiently close
 3. The KB match output file should have a `peterscomponent` entry which looks like this:
     `peterscomponent;;;NO MATCH;1.0.6;NO VERSION MATCH;`
