@@ -6,7 +6,7 @@ It does not represent any extension of licensed functionality of Synopsys softwa
 
 # DESCRIPTION
 
-The `import_manifest.py` script imports components (as manually added components) from a component list to a Black Duck project/version by searching for component name and component version matches in the Black Duck KnowledgeBase.
+The `bd-import-manifest` utility imports components (as manually added components) from a component list to a Black Duck project/version by searching for component name and component version matches in the Black Duck KnowledgeBase.
 
 It has 2 modes of operation which are required to be executed in sequence for each import activity.
 
@@ -22,48 +22,35 @@ The following diagram explains the flow of data for the 2 modes:
 
 # PREREQUISITES
 
-Python 3 and the Black Duck https://github.com/blackducksoftware/hub-rest-api-python package must be installed and configured to enable the Python API scripts for Black Duck prior to using this script.
+Python 3 and pip must be installed prior to using this script.
 
 An API key for the Black Duck server must also be configured in the `.restconfig.json` file in the package folder.
 
 # INSTALLATION
 
-First install the `hub-rest-api-python` package:
+Install the package using pip:
 
-    git clone https://github.com/blackducksoftware/hub-rest-api-python.git
-    cd hub-rest-api-python
-    pip3 install -r requirements.txt
-    pip3 install .
+    pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple bd_import_manifest
 
-Or 
-    
-    pip install blackduck
-    
-Then extract this GIT repo into a folder (`git clone https://github.com/matthewb66/import_manifest`).
-
-Add the required async package:
-
-    pip install aiohttp
-
-Configure the hub connection in the `.restconfig.json` file within the `import_manifest` folder - example contents:
+Configure the Black Duck server connection in the `.restconfig.json` file which is required within the invocation folder - example contents:
 
     {
       "baseurl": "https://myhub.blackducksoftware.com",
-      "api_token": "YWZkOTE5NGYtNzUxYS00NDFmLWJjNzItYmYwY2VlNDIxYzUwOmE4NjNlNmEzLWRlNTItNGFiMC04YTYwLWRBBWQ2MDFlMjA0Mg==",
+      "api_token": "YWZkOTE5NGYtNzUxYS0WJjNzItYmYwY2VlNDIxYzUwOmE4NjNlNmEzLWRlNTItNGFiMC04YTYwLWRBBWQ2MDFlMjA0Mg==",
       "insecure": true,
       "debug": false
     }
 
 # USAGE
 
-The `import_manifest.py` script must be invoked with one of the 2 modes kblookup or import as shown in the usage text below:
+The `bd-import-manifest` utility must be invoked with one of the 2 modes `kblookup` or `import` as shown in the usage text below:
 
-    usage: python import_manifest [-h] {kblookup,import} ...
+    usage: bd-import-manifest [-h] {kblookup,import} ...
 	
     Process or import component list into project/version
 
     positional arguments:
- 	 {kblookup,import}  Choose operation mode
+ 	    {kblookup,import}  Choose operation mode
     kblookup         Process component list to find matching KB URLs & export to
                      file
     import           Import component list into specified Black Duck
@@ -80,11 +67,11 @@ Note that `kblookup` mode stops at 500 components in order to stop a timeout of 
 
 The full list of options in `kblookup` mode can be displayed using the command:
 
-    import_manifest.py kblookup -h
+    bd-import-manifest kblookup -h
 
 Usage for kblookup mode is:
 
-    Usage: import_manifest kblookup [-h] [-k KBFILE] [-o OUTPUT] [-r REPLACE_PACKAGE_STRING] -c COMPONENT_FILE [-a]
+    Usage: bd-import-manifest kblookup [-h] [-k KBFILE] [-o OUTPUT] [-r REPLACE_PACKAGE_STRING] -c COMPONENT_FILE [-a]
 
 Further explanation of options for kblookup mode is provided below:
 
@@ -109,11 +96,11 @@ The `import` mode requires a component list file and a KB Lookup File to be spec
 
 The full list of options in import mode can be displayed using the command:
 
-    import_manifest.py import -h
+    bd-import-manifest import -h
 
 The usage for import mode is:
 
-    usage: import_manifest import [-h] -k KBFILE -p PROJECT -v VERSION -c COMPONENT_FILE
+    usage: bd-import-manifest import [-h] -k KBFILE -p PROJECT -v VERSION -c COMPONENT_FILE
 
 Further explanation of options for import mode:
 
