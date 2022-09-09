@@ -1,4 +1,8 @@
 # Synopsys Import Manifest Script - import_manifest.py
+
+# Deprecation Notification
+The KB search endpoint used by this script has been deprecated in Black Duck 2022.7 and this script will not work for this version or later.
+
 # OVERVIEW
 This script is provided under an OSS license as an example of how to use the Black Duck APIs to import components from a manifest list.
 
