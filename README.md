@@ -20,9 +20,9 @@ The following diagram explains the flow of data for the 2 modes:
 
 ![](https://github.com/matthewb66/import_manifest/blob/master/images/im_process_map.png)
 
-# PREREQUISITES
+# PREREQUISITES 
 
-Python 3 and pip must be installed prior to using this script.
+Python 3 and pip must be installed prior to using this script. 
 
 An API key for the Black Duck server must also be configured in the `.restconfig.json` file in the package folder.
 
