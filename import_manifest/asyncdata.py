@@ -1,6 +1,6 @@
 import aiohttp
 import asyncio
-
+import time
 
 def get_data_async(comps, hub, strict):
     return asyncio.run(async_kbcomps_main(comps, hub, strict))
@@ -182,9 +182,17 @@ async def async_post_compdata(comp, session, bdverurl, token, trustcert):
     #         'Content-Type': 'application/vnd.blackducksoftware.bill-of-materials-6+json'
     # }
 
+    time.sleep(0.5)
+
     try:
         async with session.post(bdverurl + '/components', json=comp, headers=headers, ssl=ssl) as resp:
-            found_comps = await resp.json()
+            resp = await resp.json(content_type=None)
+            if resp is None or ('status' in resp and resp['status'] != 500):
+                print(f"Added {comp['componentModification']}")
+            elif 'errorMessage' in resp and resp['errorMessage'].find('already exists') != -1:
+                print(f"{comp['componentModification']} Already exists - skipped")
+            elif 'status' in resp and resp['status'] == 500:
+                print(f"Unable to add {comp['componentModification']} - error 500")
     except Exception as e:
         print(f"Error creating component - {e}")
         return '', 1

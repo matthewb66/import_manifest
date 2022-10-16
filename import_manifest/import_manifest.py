@@ -413,10 +413,36 @@ def set_comp_postdata(kbverurl, compfile, compver):
     
     return {
             "component": kbverurl,
-            "componentPurpose": "import_manifest: imported from file " + compfile,
+            "componentPurpose": f"import_manifest: Components imported from file '{compfile}'",
             "componentModified": False,
-            "componentModification": "Original component = " + compver
+            "componentModification": "Component = " + compver
     }
+
+
+def add_comp_to_bom(bdverurl, kbverurl, compfile, compver):
+    posturl = bdverurl + "/components"
+    custom_headers = {
+        'Content-Type': 'application/vnd.blackducksoftware.bill-of-materials-6+json'
+    }
+
+    postdata = {
+        "component": kbverurl,
+        "componentPurpose": "import_manifest: imported from file " + compfile,
+        "componentModified": False,
+        "componentModification": "Original component = " + compver
+    }
+
+    # print("POST command - posturl = {} postdata = {}".format(posturl, postdata, custom_headers))
+    response = hub.execute_post(posturl, postdata, custom_headers)
+    if response.status_code == 200:
+        print(" - Component added")
+        logging.debug("Component added {}".format(kbverurl))
+    elif response.status_code == 412:
+        print(" - Component already exists in project - SKIPPED")
+        logging.error("Component NOT added {}".format(kbverurl))
+    else:
+        print(f" - Component NOT added (Error {response.status_code}")
+        logging.error("Component NOT added {}".format(kbverurl))
 
 
 def del_comp_from_bom(projverurl, compurl):
@@ -708,7 +734,7 @@ def main():
         print("Processing component list ...")
         for line in lines:
             package, version = process_compfile_line(line)
-            print(f"Checking component '{package}/{version}'", end="")
+            print(f"Component '{package}/{version}'", end="")
             logging.debug(f"Manifest component from compfile = '{package}/{version}'")
             kbverurl = ""
             if package in kblookupdict:
@@ -734,8 +760,9 @@ def main():
                     #
                     # Component does not exist in project
                     logging.debug("Component found in project - packstr = {}".format(packstr))
-                    print(f" - Found in KB Lookup file - will add to project")
-                    comps_postlist.append(set_comp_postdata(kbverurl, args.component_file, package + "/" + version))
+                    # print(f" - Found in KB Lookup file - will add to project")
+                    # comps_postlist.append(set_comp_postdata(kbverurl, args.component_file, package + "/" + version))
+                    add_comp_to_bom(bdversion_url, kbverurl, args.component_file, package + "/" + version)
                     if kbverurl in existing_compdict.keys():
                         existing_compdict.pop(kbverurl)
                 else:
@@ -744,8 +771,8 @@ def main():
             else:
                 print(" - No component match from KB Lookup file")
 
-        num_comps_added = asyncdata.post_data_async(comps_postlist, hub, bdversion_url)
-        print(f'{num_comps_added} Components added to project {args.project} version {args.version}')
+        # num_comps_added = asyncdata.post_data_async(comps_postlist, hub, bdversion_url)
+        # print(f'{num_comps_added} Components added to project {args.project} version {args.version}')
 
         if args.delete:
             # print("Unused components not deleted - not available until version 2019.08 which supports the required API")
