@@ -38,7 +38,7 @@ async def async_kbcomps_main(comps, hub, strict):
                 for kbentry in all_compdata[comp]:
 
                     verdata_task = asyncio.ensure_future(
-                        async_get_verdata(kbentry['fields']['name'][0], kbentry['component'], comps[comp],
+                        async_get_verdata(kbentry['name'], kbentry['_meta']['href'], comps[comp],
                                           session, token, trustcert))
                     verdata_tasks.append(verdata_task)
 
@@ -60,33 +60,40 @@ async def async_get_compdata(comp, strict, session, baseurl, token, trustcert):
         ssl = True
 
     headers = {
-        # 'accept': "application/vnd.blackducksoftware.component-detail-4+json",
+        'accept': "application/vnd.blackducksoftware.internal-1+json",
         'Authorization': f'Bearer {token}',
     }
 
     params = {
         # 'q': [comp['componentIdentifier']],
-        'q': comp,
+        'q': 'name:' + comp,
         'limit': 20
     }
     # search_results = bd.get_items('/api/components', params=params)
     # /api/search/components?q=name:{}&limit={}
     try:
-        async with session.get(baseurl + '/api/search/components', headers=headers, params=params, ssl=ssl) as resp:
+        async with session.get(baseurl + '/api/search/kb-components', headers=headers, params=params, ssl=ssl) as resp:
             found_comps = await resp.json()
     except Exception as e:
         return None, None
 
-    # print('----')
-    # print(baseurl + '/api/components?q=' + compid)
-    # print(found_comps)
-    if 'items' in found_comps and len(found_comps['items']) == 1 and 'hits' in found_comps['items'][0]:
-        foundlist = found_comps['items'][0]['hits']
+    # if 'items' in found_comps and len(found_comps['items']) == 1 and 'hits' in found_comps['items'][0]:
+    #     foundlist = found_comps['items'][0]['hits']
+    #     print(f"- Component '{comp}': {len(foundlist)} matches")
+    #     if strict:
+    #         newfoundlist = []
+    #         for item in foundlist:
+    #             if item['fields']['name'][0].lower() == comp.lower():
+    #                 newfoundlist.append(item)
+    #     else:
+    #         newfoundlist = foundlist
+    if 'items' in found_comps and len(found_comps['items']) > 0:
+        foundlist = found_comps['items']
         print(f"- Component '{comp}': {len(foundlist)} matches")
         if strict:
             newfoundlist = []
             for item in foundlist:
-                if item['fields']['name'][0].lower() == comp.lower():
+                if item['name'].lower() == comp.lower():
                     newfoundlist.append(item)
         else:
             newfoundlist = foundlist

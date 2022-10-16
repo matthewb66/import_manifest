@@ -17,8 +17,8 @@ import os
 import sys
 import time
 
-from import_manifest import asyncdata
-# import asyncdata
+# from import_manifest import asyncdata
+import asyncdata
 
 from blackduck.HubRestApi import HubInstance
 
@@ -34,6 +34,7 @@ def get_kb_component(packagename):
     # print("DEBUG: processing package {}".format(packagename))
     packagename = packagename.replace(" ", "+")
     # packagename = packagename.replace("-", "+")
+    # req_url = hub.get_urlbase() + "/api/search/components?q=name:{}&limit={}".format(packagename, 20)
     req_url = hub.get_urlbase() + "/api/search/components?q=name:{}&limit={}".format(packagename, 20)
     try:
         response = hub.execute_get(req_url)
@@ -149,7 +150,7 @@ def find_ver_from_hits(hits, search_version, allcompdata, allverdata):
     for hit in hits:
         #
         # Get component from URL
-        comp_url = hit['component']
+        comp_url = hit['_meta']['href']
         # matchversion, matchstrength, bdcompver_url = \
         compname, matchversion, matchstrength, bdcomp_sourceurl, bdcompver_url = \
             find_ver_from_compver(comp_url, search_version, hit, allverdata)
