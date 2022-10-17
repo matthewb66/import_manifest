@@ -269,12 +269,12 @@ def find_comp_from_kb(compstring, version, outkbfile, inkbfile, replace_strings,
             compname = newcompname
 
     if max_matchstrength > 0:
-        print(f" - MATCHED '{found_comp}/{found_version}' (sourceURL={source_url})")
-        return f"{compstring};{found_comp};{source_url};{comp_url};{version};{compver_url};\n"
+        print(f" - MATCHED '{found_comp}/{found_version}'")
+        return 1, f"{compstring};{found_comp};{source_url};{comp_url};{version};{compver_url};\n"
 
     else:
         print(" - NO MATCH")
-        return f"{compstring};;;NO MATCH;{version};NO VERSION MATCH;\n"
+        return 0, f"{compstring};;;NO MATCH;{version};NO VERSION MATCH;\n"
 
 
 def add_kbfile_entry(outkbfile, line):
@@ -437,12 +437,15 @@ def add_comp_to_bom(bdverurl, kbverurl, compfile, compver):
     if response.status_code == 200:
         print(" - Component added")
         logging.debug("Component added {}".format(kbverurl))
+        return 1
     elif response.status_code == 412:
         print(" - Component already exists in project - SKIPPED")
         logging.error("Component NOT added {}".format(kbverurl))
+        return 0
     else:
         print(f" - Component NOT added (Error {response.status_code}")
         logging.error("Component NOT added {}".format(kbverurl))
+        return 0
 
 
 def del_comp_from_bom(projverurl, compurl):
@@ -650,6 +653,9 @@ def main():
         print(f"Will use output kbfile '{args.output}'")
         print(f"Processing component list file '{args.component_file}' ...")
         processed_comps = 0
+        matches_unique = 0
+        matches_total = 0
+        matches_nomatch = 0
         for line in lines:
             package, version = process_compfile_line(line)
 
@@ -659,6 +665,7 @@ def main():
                 # Found primary package name in kbfile
                 if kblookupdict[package][0] == "NO MATCH":
                     print("- NO MATCH in input KB File")
+                    matches_nomatch += 1
                     continue
                 logging.debug(f"Found package '{package}' in kblookupdict")
                 #
@@ -670,6 +677,7 @@ def main():
                                   f"URL {kbverdict[packverstr]}")
                     kbverurl = kbverdict[packverstr]
                     print(" - already MATCHED in input KB file")
+                    matches_total += 1
                 else:
                     #
                     # Loop through component URLs to check for component version
@@ -678,12 +686,14 @@ def main():
                         kbverurl, srcurl = find_compver_from_compurl(package, kburl, version, all_compdata, all_verdata)
                         processed_comps += 1
                         if kbverurl != "NO VERSION MATCH":
-                            print(f" - MATCHED '{package}/{version}' (sourceURL={srcurl})")
+                            print(f" - MATCHED '{package}/{version}'")
                             #
                             # KB version URL found
                             kbverdict[package + "/" + version] = kbverurl
                             update_kbfile_entry(args.output, package, version, kblookupdict[package][0], kbverurl)
                             processed_comps += 1
+                            matches_unique += 1
+                            matches_total += 1
 
                             foundkbversion = True
                             break
@@ -691,17 +701,27 @@ def main():
                         #
                         # No version match - need to add NO VERSION MATCH string to kbfile
                         update_kbfile_entry(args.output, package, version, kblookupdict[package][0], "NO VERSION MATCH")
+                        matches_nomatch += 1
                         continue  # move to next component
             else:
-                newkbline = find_comp_from_kb(package, version, args.output, args.kbfile, args.replace_package_string,
+                matched, newkbline = find_comp_from_kb(package, version, args.output, args.kbfile, args.replace_package_string,
                                               all_compdata, all_verdata)
                 add_kbfile_entry(args.output, newkbline)
                 processed_comps += 1
+                if matched == 1:
+                    matches_unique += 1
+                    matches_total += 1
+                else:
+                    matches_nomatch += 1
 
             # if processed_comps > 500:
             #     print("500 components processed - terminating. Please rerun with -k option to append to kbfile")
             #     exit()
         if processed_comps > 0:
+            print(f"\n Summary Component counts:")
+            print(f"- Unique matched components = {matches_unique}")
+            print(f"- Total matched components = {matches_total}")
+            print(f"- Unmatched components = {matches_nomatch}")
             sys.exit(0)
         sys.exit(1)
 
@@ -732,6 +752,7 @@ def main():
 
         print("")
         print("Processing component list ...")
+        added_count = 0
         for line in lines:
             package, version = process_compfile_line(line)
             print(f"Component '{package}/{version}'", end="")
@@ -762,7 +783,7 @@ def main():
                     logging.debug("Component found in project - packstr = {}".format(packstr))
                     # print(f" - Found in KB Lookup file - will add to project")
                     # comps_postlist.append(set_comp_postdata(kbverurl, args.component_file, package + "/" + version))
-                    add_comp_to_bom(bdversion_url, kbverurl, args.component_file, package + "/" + version)
+                    added_count += add_comp_to_bom(bdversion_url, kbverurl, args.component_file, package + "/" + version)
                     if kbverurl in existing_compdict.keys():
                         existing_compdict.pop(kbverurl)
                 else:
@@ -770,6 +791,7 @@ def main():
 
             else:
                 print(" - No component match from KB Lookup file")
+        print(f"\nAdded {added_count} components to project")
 
         # num_comps_added = asyncdata.post_data_async(comps_postlist, hub, bdversion_url)
         # print(f'{num_comps_added} Components added to project {args.project} version {args.version}')
