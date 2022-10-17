@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="bd_import_manifest",
-    version=1.2,
+    version=1.3,
     author="Matthew Brady",
     author_email="mbrad@synopsys.com",
     description="Import components into Black Duck",
@@ -17,7 +17,7 @@ setuptools.setup(
     url="https://github.com/matthewb66/import_manifest",
     packages=setuptools.find_packages(),
     install_requires=[
-        'blackduck>=1.0.4',
+        'blackduck>=1.0.7',
         "aiohttp",
     ],
     classifiers=[
