@@ -17,8 +17,8 @@ import os
 import sys
 import time
 
-# from import_manifest import asyncdata
-import asyncdata
+from import_manifest import asyncdata
+# import asyncdata
 
 from blackduck.HubRestApi import HubInstance
 
