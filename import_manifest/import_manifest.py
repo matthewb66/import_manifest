@@ -22,7 +22,7 @@ from import_manifest import asyncdata
 
 from blackduck.HubRestApi import HubInstance
 
-import_manifest_version = '1.1'
+import_manifest_version = '1.33'
 
 logging.basicConfig(filename='../import_manifest.log', level=logging.DEBUG)
 
