@@ -18,7 +18,7 @@ The second mode (`import`) reads the input component list and the KB match file 
 
 The following diagram explains the flow of data for the 2 modes:
 
-![](https://github.com/matthewb66/import_manifest/blob/master/images/im_process_map.png)
+![](https://github.com/matthewb66/import_manifest/blob/main/images/im_process_map.png)
 
 # PREREQUISITES 
 
@@ -181,11 +181,11 @@ The KB Lookup file can be modified to manually add identified matches if require
 
 To identify potential component matches, a manual search can be performed within the Black Duck portal using the search dialog. For example, a search for the `xaw3d` component has been performed below:
 
-![](https://github.com/matthewb66/import_manifest/blob/master/images/im_searchkb.png)
+![](https://github.com/matthewb66/import_manifest/blob/main/images/im_searchkb.png)
 
 Clicking on a component in the returned list will browse to the component landing page:
  
-![](https://github.com/matthewb66/import_manifest/blob/master/images/im_compmatch.png)
+![](https://github.com/matthewb66/import_manifest/blob/main/images/im_compmatch.png)
 
 If this is a good match for the required component, the URL of the component view page in the portal (https://hubeval39.blackducksoftware.com/api/components/64b691ee-345f-4345-b2c7-ebb838c853b6 above) can be used to populate the KB Lookup File by replacing `NO MATCH` with the component URL as follows:
 
